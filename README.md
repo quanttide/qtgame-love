@@ -2,6 +2,8 @@
 
 以 fiction 为原型的恋爱游戏：改编自 [量潮创始人网络文学](https://github.com/quanttide/quanttide-fiction-of-founder)（职场言情、校园言情、重生言情共享的同一世界观），已经创始人授权给公司。
 
+意图（视角代入、决策约束、事业爱情双主线、形态不锁死单一）记录在 [quanttide-intention-of-founder 的 qtgame-love/index.md](https://github.com/quanttide/quanttide-intention-of-founder/blob/main/qtgame-love/index.md)。
+
 ## 当前状态
 
 初始化阶段，尚无实现。
@@ -10,4 +12,5 @@
 
 | 文档 | 内容 |
 |------|------|
+| [docs/forms.md](docs/forms.md) | 五种候选形态与三条准入条件的对照 |
 | [CHANGELOG.md](CHANGELOG.md) | 变更记录 |
