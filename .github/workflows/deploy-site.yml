@@ -1,0 +1,80 @@
+# 发布站点：向 main 分支提交时，把 src/ 静态页上传到 OSS 发布桶
+#（qtgame-love-site，静态网站托管），并刷新 CDN 缓存。不接受手动触发。
+#
+# 部署链路（对齐 qtgame / qtgame-tycoon 的 deploy-site.yml 模式）：
+#   main 提交 → Actions（ossutil cp）→ OSS 桶（qtgame-love-site）
+#   → CDN（love.game.quanttide.com）→ 用户浏览器
+#
+# 构建说明：单文件互动小说（src/index.html），无构建步骤，产物即源码；
+# 固定名文件没有哈希指纹，全站统一 no-cache，避免发版后拿到旧页面。
+#
+# 前置条件（均已在 CI 之外用 aliyun CLI 配置完成，模式见 quanttide-platform 的
+# static-site / cdn-auth 模块）：
+#   - OSS 桶 qtgame-love-site：私有 + 静态托管（默认首页 index.html，错误页 404.html）
+#   - CDN 域名 love.game.quanttide.com：源站回该桶（oss:80），oss_auth 与 l2_oss_key
+#     私有回源、set_req_host_header、https_force、back_to_origin_url_rewrite（未知路径 → /index.html）
+#   - 证书 *.game.quanttide.com（本机 acme.sh 签发；
+#     ~/.acme.sh/deploy-cdn-cert-tycoon.sh 作为 reloadcmd 在续期时自动重新绑定）
+#   - DNS：quanttide.com 下 love.game CNAME → *.w.kunlunaq.com
+#
+# 所需 GitHub secrets：
+#   - ALIYUN_ACCESS_KEY_ID / ALIYUN_ACCESS_KEY_SECRET（secret）：RAM 用户 AccessKey（OSS 上传 + CDN 刷新）
+
+name: Deploy Site
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-qtgame-love-site
+  cancel-in-progress: true
+
+env:
+  OSS_BUCKET: qtgame-love-site
+  OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
+  CDN_DOMAIN: love.game.quanttide.com
+
+jobs:
+  build-and-deploy:
+    name: Deploy Static Site to OSS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ossutil
+        uses: manyuanrong/setup-ossutil@v3.0
+        with:
+          endpoint: ${{ env.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+
+      # 固定名文件全站 no-cache，否则发版后浏览器/CDN 拿旧页面
+      - name: Upload 静态文件（no-cache）
+        run: |
+          ossutil cp src/index.html oss://${{ env.OSS_BUCKET }}/index.html -f --meta "Cache-Control:no-cache"
+
+      # 错误页兜底：OSS 静态托管 error_document 返回 404.html
+      - name: Upload 404.html（fallback）
+        run: |
+          cp src/index.html 404.html
+          ossutil cp 404.html oss://${{ env.OSS_BUCKET }}/404.html -f --meta "Cache-Control:no-cache"
+
+      - name: Refresh CDN
+        run: |
+          pip install aliyun-python-sdk-cdn
+          python -c "
+          from aliyunsdkcore.client import AcsClient
+          from aliyunsdkcdn.request.v20180510.RefreshObjectCachesRequest import RefreshObjectCachesRequest
+          import os
+          cli = AcsClient(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'], 'cn-hangzhou')
+          req = RefreshObjectCachesRequest()
+          req.set_ObjectPath('https://${{ env.CDN_DOMAIN }}/')
+          req.set_ObjectType('Directory')
+          cli.do_action_with_exception(req)
+          "
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
